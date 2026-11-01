@@ -123,6 +123,8 @@ canvas{width:100%;display:block}
   .ring{width:170px;height:170px}
 }
 .hidden{display:none!important}
+.stp{width:34px;height:34px;border-radius:10px;border:1px solid var(--line)!important;font-size:18px;line-height:1;background:var(--card)}
+.stp:active{background:var(--acc2)}
 #cammode button:not(.on){color:#fff}
 </style>
 </head>
@@ -353,7 +355,7 @@ function renderHome(){
   // 오늘 영양제
   const sl=supSchedule();
   if(S.sups.length){h+=`<div class="card"><h2>💊 오늘 영양제 <small>${sl.filter(x=>d.sup[x.key]).length}/${sl.length}</small></h2>`;
-    sl.forEach(x=>{h+=`<div class="sup" onclick="toggleSup('${x.key}')"><div class="chk ${d.sup[x.key]?'on':''}">${d.sup[x.key]?'✓':''}</div><div style="flex:1"><b>${esc(x.s.name)}</b> <span class="muted">${esc(x.s.dose||'')}</span><div class="muted">${TIMES[x.time]} · ${WITH[x.s.withMeal]||''}</div></div></div>`});
+    sl.forEach(x=>{h+=`<div class="sup" onclick="toggleSup('${x.key}')"><div class="chk ${d.sup[x.key]?'on':''}">${d.sup[x.key]?'✓':''}</div><div style="flex:1"><b>${esc(x.s.name)}</b> <span class="muted">${r1(x.n)}${esc(x.s.unit)}</span><div class="muted">${TIMES[x.time]} · ${WITH[x.s.withMeal]||''}</div></div></div>`});
     h+=`</div>`}
   else h+=`<div class="card"><h2>💊 영양제</h2><div class="muted">드시는 영양제를 등록하면 매일 체크하고, 중복·과다 섭취와 함께 먹으면 안 되는 조합을 알려 드려요.</div><button class="btn ghost" style="width:100%;margin-top:10px" onclick="tab='sup';document.querySelector('[data-t=sup]').click()">영양제 등록하기</button></div>`;
   // 운동/수면/체중
@@ -694,7 +696,7 @@ async function runCoach(){
   if(!hasKey()){toast('내 정보 → AI 설정에서 키를 먼저 넣어 주세요');return}
   const d=day(),c=calc(d),t=dayTotals(d);const btn=$('#coachBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span> 분석 중…';
   const meals=d.meals.map(m=>`[${MEALS[m.type]}] `+m.items.map(i=>`${i.name}(${r0(i.kcal)}kcal)`).join(', ')).join('\n')||'(기록 없음)';
-  const sups=S.sups.map(s=>`${s.name}: ${(s.ing||[]).map(g=>g.n+' '+g.amt+g.unit).join(', ')} / ${s.times.map(x=>TIMES[x]).join(',')}`).join('\n')||'(없음)';
+  const sups=S.sups.map(s=>`${s.name}: 하루 ${supDaily(supNorm(s))}${s.unit} (라벨 ${s.labelN}${s.unit}당 ${(s.ing||[]).map(g=>g.n+' '+g.amt+g.unit).join(', ')})`).join('\n')||'(없음)';
   const taken=supSchedule().filter(x=>d.sup[x.key]).length+'/'+supSchedule().length;
   const p=`당신은 친절하지만 솔직한 한국인 영양사 겸 건강 코치입니다. 아래 기록을 보고 오늘을 평가하세요.
 [사용자] ${profileLine()}, 목표체중 ${S.profile.targetW||'-'}kg, 활동량 ${ACT.find(a=>a.v==S.profile.act)?.t}
@@ -853,7 +855,7 @@ const PAIRS=[
 function nutOf(name){const s=String(name).toLowerCase();return NUT.find(n=>n.k.some(k=>s.includes(k)))}
 function toUnit(amt,unit,nut){unit=String(unit||'').toLowerCase().replace('mcg','µg').replace('ug','µg').replace('μg','µg');amt=+amt||0;if(!nut.u)return null;
   if(unit===nut.u.toLowerCase())return amt;if(unit==='iu'&&nut.iu)return amt/nut.iu;if(unit==='mg'&&nut.u==='µg')return amt*1000;if(unit==='µg'&&nut.u==='mg')return amt/1000;if(unit==='g'&&nut.u==='mg')return amt*1000;return null}
-function supSchedule(){const out=[];for(const s of S.sups)for(const t of['am','noon','pm','bed'])if(s.times.includes(t))out.push({s,time:t,key:s.id+'_'+t});return out}
+function supSchedule(){const out=[];for(const s of S.sups){supNorm(s);for(const t of['am','noon','pm','bed'])if(+s.cnt[t]>0)out.push({s,time:t,key:s.id+'_'+t,n:+s.cnt[t]})}return out}
 function toggleSup(k){const d=day();d.sup[k]=!d.sup[k];save();render()}
 // ===== 2025 한국인 영양소 섭취기준 (성인 30~49 / 50~64세, 남·여) — 권장(R)·충분(AI)·상한(UL) =====
 // r: [남30, 여30, 남50, 여50]
@@ -905,7 +907,7 @@ function judge(k,v){const c=kdCol();if(k.fn){const[lo,hi]=k.fn;return v<lo?{s:'l
   if(!ul&&v>=r*10)return{s:'mega',t:'고함량',cls:'w'};
   if(v>=r*0.5)return{s:'ok',t:'적정',cls:''};
   return{s:'low',t:'소량',cls:'w'}}
-function supTotals(list=S.sups){const T={};for(const s of list){const per=s.times?.length||s.perDay||1;
+function supTotals(list=S.sups){const T={};for(const s0 of list){const s=supNorm(JSON.parse(JSON.stringify(s0)));const per=supDaily(s)/(+s.labelN||1);if(!per)continue;
     for(const g of s.ing||[]){const k=kdOf(g.n);if(!k)continue;let v=kdConv(g.amt,g.unit,k,g.n);if(v==null||!v)continue;v*=per;
       const t=T[k.id]=T[k.id]||{k,v:0,from:[]};t.v+=v;t.from.push(s.name)}}
   return Object.values(T).sort((a,b)=>KDRI.indexOf(a.k)-KDRI.indexOf(b.k))}
@@ -938,14 +940,14 @@ function renderSup(){const d=day();const sl=supSchedule();
   let h=`<div class="card"><h2>오늘 복용 체크 <small>${sl.filter(x=>d.sup[x.key]).length}/${sl.length} · ${supStreak()}일 연속</small></h2>`;
   if(!sl.length)h+=`<div class="muted">등록된 영양제가 없어요.</div>`;
   for(const t of['am','noon','pm','bed']){const xs=sl.filter(x=>x.time===t);if(!xs.length)continue;h+=`<div class="muted" style="margin-top:8px">${TIMES[t]}</div>`;
-    xs.forEach(x=>h+=`<div class="sup" onclick="toggleSup('${x.key}')"><div class="chk ${d.sup[x.key]?'on':''}">${d.sup[x.key]?'✓':''}</div><div style="flex:1"><b>${esc(x.s.name)}</b> <span class="muted">${esc(x.s.dose||'')} · ${WITH[x.s.withMeal]}</span></div></div>`)}
+    xs.forEach(x=>h+=`<div class="sup" onclick="toggleSup('${x.key}')"><div class="chk ${d.sup[x.key]?'on':''}">${d.sup[x.key]?'✓':''}</div><div style="flex:1"><b>${esc(x.s.name)}</b> <span class="muted">${r1(x.n)}${esc(x.s.unit)} · ${WITH[x.s.withMeal]}</span></div><button class="muted" style="padding:6px 8px" onclick="event.stopPropagation();supSheet('${x.s.id}')">편집</button></div>`)}
   h+=`</div>`;
   const {warn,tips}=supAnalysis();
   h+=supNutCard();
   h+=recCard();
   if(S.sups.length){h+=`<div class="card"><h2>⏰ 복용 시간·조합 점검</h2>${warn.map(w=>`<div class="note w">⚠️ ${w}</div>`).join('')}${tips.map(w=>`<div class="note">ℹ️ ${w}</div>`).join('')}${!warn.length&&!tips.length?'<div class="note">✅ 같은 시간대에 먹으면 안 되는 조합은 없어요.</div>':''}
     <div class="muted" style="margin-top:6px">성분 이름과 함량을 입력한 제품만 계산돼요. 약을 드시는 경우 약사와 꼭 상의하세요.</div></div>`}
-  h+=`<div class="card"><h2>내 영양제 <small>${S.sups.length}개</small></h2>${S.sups.map(s=>{const n=nutOf(s.name)||nutOf((s.ing||[])[0]?.n||'');return `<div class="list-item" onclick="supSheet('${s.id}')"><div><b>${esc(s.name)}</b><div class="muted">${s.times.map(t=>TIMES[t]).join('·')} ${WITH[s.withMeal]}${(s.ing||[]).length?' · 성분 '+s.ing.length+'개':''}</div>${n&&n.tip?`<div class="muted" style="font-size:12px;margin-top:2px">💡 ${esc(n.tip)}</div>`:''}</div><span class="muted">›</span></div>`}).join('')}
+  h+=`<div class="card"><h2>내 영양제 <small>${S.sups.length}개</small></h2>${S.sups.map(s=>{const n=nutOf(s.name)||nutOf((s.ing||[])[0]?.n||'');return `<div class="list-item" onclick="supSheet('${s.id}')"><div><b>${esc(s.name)}</b><div class="muted">${Object.entries(s.cnt||{}).filter(([t,n])=>+n>0).map(([t,n])=>TIMES[t]+' '+r1(n)+(s.unit||'정')).join(' · ')} · ${WITH[s.withMeal]}${(s.ing||[]).length?' · 성분 '+s.ing.length+'개':''}</div>${n&&n.tip?`<div class="muted" style="font-size:12px;margin-top:2px">💡 ${esc(n.tip)}</div>`:''}</div><span class="muted">›</span></div>`}).join('')}
    <div class="grid2" style="margin-top:12px"><button class="btn" onclick="supSheet()">+ 직접 등록</button><button class="btn ghost" onclick="${hasKey()?"pickFile('sup')":"toast('AI 설정에서 키를 넣으면 라벨 사진으로 자동 등록돼요')"}">📷 라벨 사진으로</button></div></div>`;
   $('#main').innerHTML=h}
 // ================= 영양제 추천 =================
@@ -995,39 +997,52 @@ async function runSupAI(){if(!hasKey())return toast(typeof WEB!=='undefined'?'Cl
 ⚠️ 주의 한 줄 (약 복용·검사 필요 등)`;
   try{const t=String(await askAI(p,null,false)).replace(/[#*]/g,'').trim();S.supAI={date:todayKey(),text:t};save();render()}catch(e){toast(e.message);b.disabled=false;b.textContent='AI에게 추천받기'}}
 function supStreak(){let n=0;const d=new Date();for(let i=0;i<365;i++){const k=dkey(d);const dd=peekDay(k);const sl=supSchedule();if(!sl.length)return 0;const ok=dd&&sl.every(x=>dd.sup[x.key]);if(ok)n++;else if(i>0)break;d.setDate(d.getDate()-1)}return n}
-function supSheet(id,pre){const s=pre||(id?JSON.parse(JSON.stringify(S.sups.find(x=>x.id===id))):{id:uid(),name:'',dose:'1정',times:['am'],withMeal:'after',ing:[],perDay:1});
+// 영양제 데이터: cnt={am:2,...} 시간대별 개수, unit='정', labelN=성분표 함량이 몇 개 기준인지
+const UNITS=['정','캡슐','포','스푼','ml','방울'];
+function supNorm(s){if(!s)return s;if(!s.cnt){const n=parseFloat(String(s.dose||'').match(/[\d.]+/)?.[0])||1;s.cnt={};for(const t of s.times||[])s.cnt[t]=n;s.labelN=s.labelN||n;s.unit=s.unit||(String(s.dose||'').match(/정|캡슐|포|스푼|ml|방울/)||['정'])[0]}
+  s.labelN=+s.labelN||1;s.unit=s.unit||'정';s.times=Object.keys(s.cnt).filter(t=>+s.cnt[t]>0);s.perDay=s.times.length;const tot=supDaily(s);s.dose=`하루 ${r1(tot)}${s.unit}`;return s}
+const supDaily=s=>Object.values(s.cnt||{}).reduce((a,b)=>a+(+b||0),0);
+function supSheet(id,pre){const s=supNorm(pre||(id?JSON.parse(JSON.stringify(S.sups.find(x=>x.id===id))):{id:uid(),name:'',cnt:{am:1},unit:'정',labelN:1,withMeal:'after',ing:[]}));
+  window._sup=s;
   const el=sheet(`<h3>${id?'영양제 수정':'영양제 등록'}<button onclick="closeSheet()">✕</button></h3>
    <div class="field"><label>제품명</label><input id="sn" value="${esc(s.name)}" placeholder="예: 비타민D 2000IU"></div>
-   <div class="field"><label>1회 복용량</label><input id="sd" value="${esc(s.dose)}" placeholder="1정, 2캡슐"></div>
-   <div class="field"><label>먹는 시간 (여러 개 선택)</label><div class="seg" id="st">${Object.entries(TIMES).map(([k,v])=>`<button data-v="${k}" class="${s.times.includes(k)?'on':''}">${v}</button>`).join('')}</div></div>
+   <div class="field"><label>단위</label><div class="seg" id="su">${UNITS.map(u=>`<button data-v="${u}" class="${s.unit===u?'on':''}">${u}</button>`).join('')}</div></div>
+   <div class="field"><label>언제 몇 ${'<span class="uu">'+esc(s.unit)+'</span>'}씩 먹나요? <span style="font-size:12px">(안 먹는 시간은 0)</span></label><div id="scnt"></div></div>
    <div class="field"><label>식사와</label><div class="seg" id="sw">${Object.entries(WITH).map(([k,v])=>`<button data-v="${k}" class="${s.withMeal===k?'on':''}">${v}</button>`).join('')}</div></div>
    <div id="stip"></div>
-   <div class="field"><label>성분·함량 (1회분 기준, 선택) — 중복·과다 체크에 쓰여요</label><div id="ings"></div><button class="btn line small" onclick="addIng()">+ 성분 추가</button></div><div id="sana"></div>
+   <div class="field" style="border-top:1px solid var(--line);padding-top:12px"><label style="color:var(--ink);font-weight:700">성분표 (라벨에 적힌 그대로)</label>
+     <div class="row" style="justify-content:space-between;background:var(--bg);border-radius:12px;padding:8px 12px;margin-bottom:8px"><span style="font-size:13.5px">아래 함량은 <b id="lnTxt"></b> 기준</span>${stepper('ln',s.labelN)}</div>
+     <div class="muted" style="font-size:12px;margin:-2px 0 8px">라벨에 "1일 섭취량 2정당" 이라고 적혀 있으면 2로 맞추세요</div>
+     <div id="ings"></div><button class="btn line small" onclick="addIng()">+ 성분 추가</button></div><div id="sana"></div>
    <div class="row" style="margin-top:12px"><button class="btn" style="flex:1" id="sgo">저장</button>${id?`<button class="btn danger" id="sdel">삭제</button>`:''}</div>`);
-  window._sup=s;
-  el.querySelector('#st').querySelectorAll('button').forEach(b=>b.onclick=()=>{b.classList.toggle('on');supLive()});
-  el.querySelector('#sw').querySelectorAll('button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#sw button').forEach(x=>x.classList.remove('on'));b.classList.add('on')});
+  const drawCnt=()=>{$('#scnt').innerHTML=Object.entries(TIMES).map(([k,v])=>`<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)"><span style="${+s.cnt[k]?'font-weight:700':'color:var(--sub)'}">${v}</span>${stepper('c_'+k,+s.cnt[k]||0)}</div>`).join('')+`<div style="text-align:right;margin-top:6px;font-size:13.5px">하루 합계 <b>${r1(supDaily(s))}${esc(s.unit)}</b></div>`;bindSteps()};
+  const upd=()=>{$('#lnTxt').textContent=`${r1(s.labelN)}${s.unit}`;el.querySelectorAll('.uu').forEach(x=>x.textContent=s.unit);supLive()};
+  window._supStep=(key,delta)=>{if(key==='ln'){s.labelN=Math.max(0.5,Math.round(((+s.labelN||1)+delta)*2)/2);$('#st_ln').textContent=r1(s.labelN)}else{const t=key.slice(2);s.cnt[t]=Math.max(0,Math.round(((+s.cnt[t]||0)+delta)*2)/2);drawCnt()}upd()};
+  function bindSteps(){}
+  el.querySelectorAll('#su button').forEach(b=>b.onclick=()=>{s.unit=b.dataset.v;el.querySelectorAll('#su button').forEach(x=>x.classList.toggle('on',x===b));drawCnt();upd()});
+  el.querySelectorAll('#sw button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#sw button').forEach(x=>x.classList.remove('on'));b.classList.add('on')});
   const tip=()=>{const n=nutOf($('#sn').value)||nutOf(s.ing[0]?.n||'');$('#stip').innerHTML=n?`<div class="note">💡 ${esc(n.n)}: ${esc(n.tip||'')}${n.prefer?` 추천 시간: <b>${TIMES[n.prefer]}</b>`:''}</div>`:''};
-  $('#sn').oninput=()=>{tip();if(!id&&!s._touched){const n=nutOf($('#sn').value);if(n&&n.time){el.querySelectorAll('#sw button').forEach(x=>x.classList.toggle('on',x.dataset.v===n.time))}if(n&&n.prefer){el.querySelectorAll('#st button').forEach(x=>x.classList.toggle('on',x.dataset.v===n.prefer))}}};
-  tip();drawIngs();
-  $('#sgo').onclick=()=>{readIngs();s.name=$('#sn').value.trim();s.dose=$('#sd').value.trim();s.times=[...el.querySelectorAll('#st .on')].map(b=>b.dataset.v);s.withMeal=el.querySelector('#sw .on')?.dataset.v||'any';s.perDay=s.times.length||1;
-    if(!s.name)return toast('제품명을 입력해 주세요');if(!s.times.length)return toast('먹는 시간을 하나 이상 골라 주세요');
+  $('#sn').oninput=tip;tip();drawCnt();drawIngs();upd();
+  $('#sgo').onclick=()=>{readIngs();s.name=$('#sn').value.trim();s.withMeal=el.querySelector('#sw .on')?.dataset.v||'any';s.ing=s.ing.filter(g=>g.n&&+g.amt>0);supNorm(s);
+    if(!s.name)return toast('제품명을 입력해 주세요');if(!s.times.length)return toast('먹는 시간에 1개 이상 넣어 주세요');
     const i=S.sups.findIndex(x=>x.id===s.id);if(i>=0)S.sups[i]=s;else S.sups.push(s);save();closeSheet();render();
-    const {warn}=supAnalysis();if(warn.length)toast('⚠️ 조합 점검에 주의할 내용이 있어요')};
+    const {warn}=supAnalysis();if(warn.length)toast('⚠️ 성분 판정에 주의할 내용이 있어요')};
   if(id)$('#sdel').onclick=async()=>{if(await askYes(s.name+' 을(를) 삭제할까요?')){S.sups=S.sups.filter(x=>x.id!==id);save();closeSheet();render()}}}
-function supLive(){const s=window._sup;const box=$('#sana');if(!box)return;const st=[...document.querySelectorAll('#st .on')].map(b=>b.dataset.v);const one={...s,times:st.length?st:s.times};const T=supTotals([one]);
-  box.innerHTML=T.length?`<div style="margin-top:10px"><div class="muted" style="font-size:12.5px">이 제품만 하루 ${one.times.length}번 먹을 때 <span style="font-size:11.5px">(다른 영양제와 합친 결과는 영양제 탭에서)</span></div>${T.map(t=>kdRow(t,true)).join('')}</div>`:''}
+function stepper(key,v){return `<span class="row" style="gap:4px"><button class="stp" onclick="_supStep('${key}',-${key==='ln'?1:1})">−</button><b id="st_${key}" style="min-width:34px;text-align:center;font-size:16px">${r1(v)}</b><button class="stp" onclick="_supStep('${key}',1)">+</button></span>`}
+function supLive(){const s=window._sup;const box=$('#sana');if(!box)return;readIngs();const T=supTotals([s]);const d=supDaily(s);
+  box.innerHTML=T.length&&d?`<div style="margin-top:12px"><div class="muted" style="font-size:12.5px">이 제품을 하루 <b style="color:var(--ink)">${r1(d)}${esc(s.unit)}</b> 먹으면 (라벨 ${r1(s.labelN)}${esc(s.unit)} 기준 × ${r1(d/s.labelN)}배)</div>${T.map(t=>kdRow(t,true)).join('')}</div>`:''}
 function drawIngs(){const s=window._sup;$('#ings').innerHTML=s.ing.map((g,i)=>`<div class="row" style="margin-bottom:6px"><input style="flex:2" data-f="n" data-i="${i}" value="${esc(g.n)}" placeholder="성분"><input style="flex:1" data-f="amt" data-i="${i}" type="number" inputmode="decimal" value="${g.amt??''}" placeholder="양"><select style="flex:1" data-f="unit" data-i="${i}">${['mg','µg','IU','g'].map(u=>`<option ${g.unit===u?'selected':''}>${u}</option>`).join('')}</select><button class="muted" onclick="readIngs();_sup.ing.splice(${i},1);drawIngs()">✕</button></div>`).join('');document.querySelectorAll('#ings [data-f]').forEach(e=>{e.oninput=e.onchange=()=>{readIngs();supLive()}});supLive()}
 function readIngs(){const s=window._sup;document.querySelectorAll('#ings [data-f]').forEach(e=>{const g=s.ing[+e.dataset.i];if(g)g[e.dataset.f]=e.dataset.f==='amt'?+e.value:e.value})}
 function addIng(){readIngs();window._sup.ing.push({n:'',amt:'',unit:'mg'});drawIngs()}
 async function afterSupPhoto(url){sheet(`<h3>라벨 읽는 중<button onclick="closeSheet()">✕</button></h3><img class="preview" src="${url}"><div style="padding:16px 0" class="muted"><span class="spin"></span> 성분표를 읽고 있어요…</div>`);
   try{const j=await askAI(`영양제/건강기능식품 제품 사진(앞면 또는 성분표)입니다. 읽을 수 있는 정보를 정확히 추출하세요. 추측한 값은 넣지 마세요.
-- 영양·기능정보 표의 '1회 섭취량당' 함량을 쓰고, 표가 '1일 섭취량당'이면 perDay로 나눠 1회분으로 바꾸세요.
-- %영양성분기준치(%)는 함량이 아니니 무시하고 실제 함량(mg, µg 등)만.
-- 단위는 표기 그대로(µg/mcg는 µg, IU는 IU). 엽산이 'µg DFE'로 적혀 있으면 1.7로 나눈 값을 µg로(합성 엽산량). 나이아신은 원재료명에 니코틴산아미드가 보이면 성분명을 '니코틴산아미드'로. 오메가3는 'EPA 및 DHA의 합' 값을, 홍삼은 진세노사이드 합 값을 사용.
-JSON만 출력: {"name":"제품명(한국어)","dose":"1회 섭취량 예: 1정","perDay":1일 섭취 횟수(숫자),"ingredients":[{"n":"성분명(한국어, 예: 비타민D, 니코틴산아미드, EPA및DHA 함유 유지의 경우 EPA+DHA 합계)","amt":숫자(1회 섭취량 기준),"unit":"mg|µg|IU|g"}],"timing":"after|before|any","note":"섭취 시 주의사항 한 줄"}`,url);
-    const times=['am','pm','noon'].slice(0,Math.min(3,Math.max(1,+j.perDay||1)));
-    supSheet(null,{id:uid(),name:j.name||'',dose:j.dose||'1정',times,withMeal:['after','before','any'].includes(j.timing)?j.timing:'after',ing:(j.ingredients||[]).map(g=>({n:g.n,amt:+g.amt||0,unit:g.unit||'mg'})),perDay:times.length});
+- 성분 함량은 영양·기능정보 표에 적힌 숫자 그대로 쓰고, 그 표가 몇 정(캡슐/포) 기준인지 basisN에 적으세요. 예: "1일 섭취량 2정(1,400mg)당 비타민B1 100mg" → basisN 2, amt 100.
+- dailyN은 라벨의 1일 섭취 권장 개수 합계, perDay는 하루 몇 번 나눠 먹으라는지(적혀 있지 않으면 1).
+- %영양성분기준치(%)는 함량이 아니니 무시. 단위는 표기 그대로(µg/mcg는 µg, IU는 IU). 엽산이 'µg DFE'면 1.7로 나눈 값을 µg로. 나이아신은 원재료명에 니코틴산아미드가 보이면 성분명을 '니코틴산아미드'로. 오메가3는 'EPA 및 DHA의 합', 홍삼은 진세노사이드 합.
+JSON만 출력: {"name":"제품명(한국어)","unit":"정|캡슐|포|스푼|ml","basisN":숫자,"dailyN":숫자,"perDay":숫자,"ingredients":[{"n":"성분명(한국어)","amt":숫자,"unit":"mg|µg|IU|g"}],"timing":"after|before|any","note":"섭취 시 주의사항 한 줄"}`,url);
+    const p=Math.min(3,Math.max(1,+j.perDay||1)),daily=+j.dailyN||+j.basisN||1,ts=['am','pm','noon'].slice(0,p),cnt={};ts.forEach(t=>cnt[t]=Math.round(daily/p*2)/2);
+    supSheet(null,{id:uid(),name:j.name||'',unit:UNITS.includes(j.unit)?j.unit:'정',labelN:+j.basisN||1,cnt,withMeal:['after','before','any'].includes(j.timing)?j.timing:'after',ing:(j.ingredients||[]).map(g=>({n:g.n,amt:+g.amt||0,unit:g.unit||'mg'}))});
+    toast('라벨을 읽었어요 — 실제로 드시는 개수만 확인해 주세요');
     if(j.note)setTimeout(()=>$('#stip')&&$('#stip').insertAdjacentHTML('beforeend',`<div class="note w">📋 ${esc(j.note)}</div>`),50);
   }catch(e){closeSheet();toast(e.message)}}
 
